@@ -47,11 +47,19 @@ export default {
 				const aiResult = await generateWithGemini(article.title, article.content, env.GEMINI_API_KEY);
 
 				// DB 저장
+				// DB 저장
 				const { lastRowId } = await env.DB.prepare(
 					"INSERT INTO drafts (url, publisher, raw_title, raw_content, ai_title, ai_summary) VALUES (?, ?, ?, ?, ?, ?)"
 				).bind(newsUrl, article.publisher, article.title, article.content, aiResult.title, aiResult.summary).run();
 
-				return Response.json({ status: 'ok', id: lastRowId, ...aiResult }, { headers: corsHeaders });
+				return Response.json({ 
+					status: 'ok', 
+					id: lastRowId, 
+					raw_title: article.title,
+					raw_content: article.content,
+					ai_title: aiResult.title,
+					ai_summary: aiResult.summary
+				}, { headers: corsHeaders });
 			}
 
 			// 3. 이미지 생성
