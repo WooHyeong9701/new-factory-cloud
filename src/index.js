@@ -125,75 +125,67 @@ async function fetchArticle(url) {
 
 	if (!res.ok) throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
 
-	const contentType = res.headers.get('content-type') || '';
+	// 인코딩 확인 및 원본 텍스트 확보 (제목 및 메타 정보용)
+	const resClone = res.clone();
 	const buffer = await res.arrayBuffer();
+	let contentType = res.headers.get('content-type') || '';
 	let decoder = new TextDecoder('utf-8');
-	let html = decoder.decode(buffer);
+	let htmlForMeta = decoder.decode(buffer);
 	
-	if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr') || html.includes('charset="cp949"')) {
+	if (htmlForMeta.includes('charset="euc-kr"') || htmlForMeta.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr') || htmlForMeta.includes('charset="cp949"')) {
 		decoder = new TextDecoder('euc-kr');
-		html = decoder.decode(buffer);
+		htmlForMeta = decoder.decode(buffer);
 	}
 
-	// 1. 제목 추출
+	// 제목 추출
 	let title = "";
-	const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+	const titleMatch = htmlForMeta.match(/<title>(.*?)<\/title>/i);
 	if (titleMatch) title = titleMatch[1].split(/[|:-]/)[0].trim();
 
-	// 2. 본문 컨테이너 찾기 (더 넓은 범위의 선택자 지원)
-	const containerSelectors = [
-		'#article-view-content-div', // 매일신문 등
-		'#articleBody', '#newsContext', '#news_body_id', 
-		'.article_view', '.article_body', '.view_con', '#article_content', '#articletxt'
-	];
-	
-	let bodyHtml = "";
-	for (const sel of containerSelectors) {
-		const isId = sel.startsWith('#');
-		const name = sel.substring(1);
-		const regex = isId 
-			? new RegExp(`<div[^>]*id=["']${name}["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i')
-			: new RegExp(`<div[^>]*class=["'][^"']*${name}[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
-		
-		const match = html.match(regex);
-		// 가장 내용이 긴 영역을 본문으로 간주
-		if (match && match[1].length > bodyHtml.length) {
-			bodyHtml = match[1];
-		}
+	// HTMLRewriter를 이용한 강력한 본문 추출
+	let bodyText = "";
+	const rewriter = new HTMLRewriter()
+		// 주요 본문 컨테이너들 지정
+		.on('#article-view-content-div, #articleBody, #newsContext, #news_body_id, .article_view, .article_body, .view_con, #article_content, #articletxt, article', {
+			text(text) {
+				bodyText += text.text;
+			}
+		});
+
+	// 리라이터를 실행하여 본문 텍스트 수집 (스트리밍 방식이라 매우 빠르고 정확함)
+	await rewriter.transform(resClone).arrayBuffer();
+
+	// 만약 위 방식으로 추출된 내용이 너무 적으면 (컨테이너 매칭 실패) 전체 body에서 추출
+	if (bodyText.length < 300) {
+		bodyText = "";
+		const fallbackRewriter = new HTMLRewriter()
+			.on('body', { text(t) { bodyText += t.text; } });
+		await rewriter.transform(new Response(buffer)).arrayBuffer(); // buffer 재사용
 	}
 
-	if (!bodyHtml || bodyHtml.length < 200) bodyHtml = html; // 못 찾으면 전체에서 시도
-
-	// 3. 본문 정제 (불완전한 태그 및 광고 제거)
-	let cleanHtml = bodyHtml
-		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-		.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
-		.replace(/<div[^>]*class=["'][^"']*(sns|share|comment|related|popular|ads|banner)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
-
-	// 4. 텍스트 추출 (개행 유지)
-	let content = cleanHtml
-		.replace(/<p[^>]*>/gi, '\n\n')
-		.replace(/<\/p>/gi, '\n')
-		.replace(/<br\s*\/?>/gi, '\n')
-		.replace(/<div[^>]*>/gi, '\n')
-		.replace(/<\/div>/gi, '\n')
-		.replace(/<[^>]+>/g, ' ') // 나머지 태그 제거
-		.replace(/&nbsp;/g, ' ')
-		.replace(/&lt;/g, '<')
-		.replace(/&gt;/g, '>')
-		.replace(/&quot;/g, '"')
-		.replace(/\n\s*\n/g, '\n\n') // 중복 개행 정리
+	// 텍스트 정제 (불완전한 공백 및 노이즈 제거)
+	let content = bodyText
+		.replace(/\t/g, ' ')
+		.replace(/[\r\n]+/g, '\n\n') // 개행을 명확하게 분리
+		.replace(/\s{2,}/g, ' ')     // 과도한 공백 정리
+		.replace(/([^\n])\n\n([^\n])/g, '$1\n$2') // 너무 벌어진 문단은 살짝 조절
 		.trim();
 
-	// 너무 짧은 줄들(노이즈)은 살려두되, 너무 비정상적이지 않게만 처리
+	// 기사 본문이라고 보기 힘든 앞뒤 노이즈 제거 (간단하게)
+	if (content.length > 5000) content = content.substring(0, 5000);
+
 	if (content.length < 100) {
-		content = "본문 추출에 어려움이 있습니다. 사이트 구조를 확인해 주세요.";
+		// 최후의 수단: 정규식 기반 전체 텍스트 추출
+		content = htmlForMeta.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+							 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+							 .replace(/<[^>]+>/g, ' ')
+							 .replace(/\s+/g, ' ')
+							 .trim();
 	}
 
 	return {
 		title: title || "제목 없음",
-		content: content.substring(0, 5000), 
+		content: content,
 		publisher: new URL(url).hostname,
 	};
 }
