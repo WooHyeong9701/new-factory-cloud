@@ -9,6 +9,7 @@
         :root {
             --bg: #000; --card: #121212; --border: #262626;
             --text: #fff; --text2: #a8a8a8; --accent: #0095f6; --danger: #ed4956;
+            --hi-bg: rgba(0, 149, 246, 0.2); --hi-text: #60cdff;
             --gradient: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
         }
         * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -25,10 +26,11 @@
         .logo { font-size:1.4rem; font-weight:800; background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
 
         .nav-buttons { display:flex; gap:10px; padding:10px 0; border-top:1px solid var(--border); margin-top:20px; }
-        .btn-nav { flex:1; padding:12px; border-radius:10px; border:1px solid var(--border); color:#fff; cursor:pointer; font-weight:600; text-align:center; }
+        .btn-nav { flex:1; padding:12px; border-radius:10px; border:1px solid var(--border); color:#fff; cursor:pointer; font-weight:600; text-align:center; transition:0.2s; }
+        .btn-nav:active { opacity:0.6; transform:scale(0.98); }
         .btn-next { background:var(--accent); border:none; }
 
-        .input-hero { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:20px; margin-bottom:30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .input-hero { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:20px; margin-bottom:30px; }
         .url-input-group { display:flex; gap:10px; }
         input { flex:1; background:#1e1e1e; border:1px solid #333; border-radius:12px; padding:12px 15px; color:#fff; outline:none; }
         .btn-process { background:var(--accent); color:#fff; border:none; border-radius:12px; padding:0 20px; font-weight:700; cursor:pointer; }
@@ -36,21 +38,28 @@
         .section-title { font-size:0.8rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin:30px 0 15px; }
         .draft-card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
         .draft-info { flex:1; cursor:pointer; }
-        .draft-title { font-size:0.95rem; font-weight:700; margin-bottom:4px; color:#eee; }
-        .draft-meta { font-size:0.75rem; color:var(--text2); }
-        .btn-delete { color:var(--danger); font-size:0.8rem; padding:8px; cursor:pointer; font-weight:600; }
+        .btn-delete { color:var(--danger); font-size:0.8rem; padding:8px; cursor:pointer; font-weight:600; opacity:0.7; }
 
         /* 원문 컨테이너 및 복사 버튼 */
         .content-wrapper { position: relative; width:100%; }
-        .content-box { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; white-space:pre-wrap; font-size:0.95rem; line-height:1.7; color:#ddd; min-height:400px; }
+        .content-box { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:15px; min-height:400px; }
+        
+        /* 문단 하이라이트 요소 */
+        .paragraph-item { 
+            padding:10px 8px; margin:2px 0; border-radius:8px; cursor:pointer; white-space:pre-wrap;
+            transition: background-color 0.2s ease, color 0.2s ease; font-size:0.95rem; line-height:1.7; color:#ddd;
+        }
+        .paragraph-item.highlighted { 
+            background-color: var(--hi-bg); color: var(--hi-text); font-weight:600;
+            box-shadow: inset 0 0 0 1px rgba(0, 149, 246, 0.3);
+        }
+
         .copy-btn { 
             position: absolute; top:12px; right:12px; background:rgba(255,255,255,0.1); border:1px solid var(--border); 
             width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;
             cursor:pointer; color:var(--text2); z-index:5; backdrop-filter:blur(5px);
         }
-        .copy-btn:active { background:var(--accent); color:#fff; }
-        
-        /* 알림 메시지 (Toast) */
+
         #toast { 
             position:fixed; bottom:50px; left:50%; transform:translateX(-50%); background:var(--accent); 
             color:#fff; padding:10px 20px; border-radius:20px; font-weight:700; font-size:0.9rem;
@@ -72,7 +81,7 @@
 <div id="pageHome" class="page active">
     <header>
         <div class="logo">NEWS FACTORY</div>
-        <div style="font-size:0.8rem; color:var(--accent); font-weight:700;">CLOUD v2.3</div>
+        <div style="font-size:0.8rem; color:var(--accent); font-weight:700;">CLOUD v2.4</div>
     </header>
     
     <div class="input-hero">
@@ -94,13 +103,15 @@
         <div class="btn-nav" onclick="showPage('pageHome')">← 홈으로</div>
         <div class="btn-nav btn-next" onclick="showPage('pageSummary')">요약하기 →</div>
     </div>
-    <h1 id="rawTitle" style="font-size:1.2rem; margin:20px 0; font-weight:800; padding-right:50px;">제목 로딩 중...</h1>
+    <h1 id="rawTitle" style="font-size:1.2rem; margin:20px 0; font-weight:800; padding:0 30px 0 5px;">제목 로딩 중...</h1>
     
     <div class="content-wrapper">
         <div class="copy-btn" onclick="copyContent()" title="원문 복사">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </div>
-        <div id="rawContent" class="content-box">내용 로딩 중...</div>
+        <div id="rawContent" class="content-box">
+            <!-- 문단별 아이템 렌더링 영역 -->
+        </div>
     </div>
 </div>
 
@@ -128,7 +139,7 @@
         list.innerHTML = data.map(d => `
             <div class="draft-card">
                 <div class="draft-info" onclick="viewDraft(${JSON.stringify(d).replace(/"/g, '&quot;')})">
-                    <div class="draft-title">${d.ai_title || d.raw_title}</div>
+                    <div class="draft-title" style="font-size:0.95rem; font-weight:700; margin-bottom:4px; color:#eee;">${d.ai_title || d.raw_title}</div>
                     <div class="draft-meta">${d.publisher} · ${d.created_at}</div>
                 </div>
                 <div class="btn-delete" onclick="deleteDraft(${d.id})">삭제</div>
@@ -138,25 +149,30 @@
 
     function viewDraft(data) {
         document.getElementById('rawTitle').innerText = data.raw_title;
-        document.getElementById('rawContent').innerText = data.raw_content;
         currentRawText = data.raw_content;
+        
+        // 문단 분리 및 렌더링
+        const contentBox = document.getElementById('rawContent');
+        const paragraphs = data.raw_content.split(/\n\n+/);
+        contentBox.innerHTML = paragraphs.map(p => {
+            if (!p.trim()) return '';
+            return `<div class="paragraph-item" onclick="toggleHighlight(this)">${p.trim()}</div>`;
+        }).join('');
+
         document.getElementById('sumTitle').innerText = data.ai_title;
         document.getElementById('sumContent').innerText = data.ai_summary;
         showPage('pageRaw');
     }
 
+    function toggleHighlight(el) {
+        el.classList.toggle('highlighted');
+    }
+
     function copyContent() {
         if (!currentRawText) return;
-
-        // 최신 방식 시도
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(currentRawText).then(() => {
-                showToast();
-            }).catch(() => {
-                fallbackCopy(currentRawText);
-            });
+            navigator.clipboard.writeText(currentRawText).then(() => showToast()).catch(() => fallbackCopy(currentRawText));
         } else {
-            // 구형/비보안 환경 방식 시도
             fallbackCopy(currentRawText);
         }
     }
@@ -164,24 +180,9 @@
     function fallbackCopy(text) {
         const textArea = document.createElement("textarea");
         textArea.value = text;
-        
-        // 화면 밖으로 숨기기
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-        textArea.style.top = "0";
-        document.body.appendChild(textArea);
-        
-        textArea.focus();
-        textArea.select();
-        textArea.setSelectionRange(0, 99999); // 모바일 대응
-
-        try {
-            document.execCommand('copy');
-            showToast();
-        } catch (err) {
-            alert('이 브라우저에서는 복사가 지원되지 않습니다.');
-        }
-
+        textArea.style.position = "fixed"; textArea.style.left = "-9999px"; document.body.appendChild(textArea);
+        textArea.focus(); textArea.select();
+        try { document.execCommand('copy'); showToast(); } catch (err) {}
         document.body.removeChild(textArea);
     }
 
@@ -209,24 +210,10 @@
         if (!newsUrl) return alert('URL을 입력해 주세요.');
         document.getElementById('loader').style.display = 'block';
         try {
-            const res = await fetch('/api/process', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: newsUrl })
-            });
+            const res = await fetch('/api/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: newsUrl }) });
             const data = await res.json();
-            if (data.status === 'ok') {
-                urlInput.value = '';
-                viewDraft(data);
-                loadDrafts();
-            } else {
-                alert(data.message);
-            }
-        } catch (e) {
-            alert('오류 발생: ' + e.message);
-        } finally {
-            document.getElementById('loader').style.display = 'none';
-        }
+            if (data.status === 'ok') { urlInput.value = ''; viewDraft(data); loadDrafts(); } else { alert(data.message); }
+        } catch (e) { alert('오류 발생: ' + e.message); } finally { document.getElementById('loader').style.display = 'none'; }
     }
 
     loadDrafts();
