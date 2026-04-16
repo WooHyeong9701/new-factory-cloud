@@ -105,25 +105,78 @@ export default {
 // ── 보조 함수들 ──────────────────────────────────────────────────
 
 async function fetchArticle(url) {
+	console.log(`[Crawler] Fetching: ${url}`);
 	const res = await fetch(url, {
-		headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15' }
+		headers: { 
+			'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+			'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+			'Cache-Control': 'no-cache',
+			'Pragma': 'no-cache'
+		},
+		redirect: 'follow'
 	});
+
+	if (!res.ok) {
+		throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
+	}
+
 	const html = await res.text();
 	
-	// 제목 추출
-	const titleMatch = html.match(/<title>(.*?)<\/title>/);
-	const title = titleMatch ? titleMatch[1].split(' : ')[0] : "제목 없음";
+	// 1. 제목 추출 (title 태그 또는 h1)
+	let title = "";
+	const titleMatch = html.match(/<title>(.*?)<\/title>/i);
+	if (titleMatch) title = titleMatch[1].split(/[|:-]/)[0].trim();
+	if (!title) {
+		const h1Match = html.match(/<h1[^>]*>(.*?)<\/h1>/i);
+		if (h1Match) title = h1Match[1].replace(/<[^>]+>/g, '').trim();
+	}
+
+	// 2. 본문 추출 (주요 뉴스 사이트 클래스/ID 기반)
+	let content = "";
 	
-	// 본문 추출 (매우 간단한 버전: p 태그들 결합)
-	const pMatches = html.match(/<p[^>]*>(.*?)<\/p>/g);
-	let content = pMatches ? pMatches.map(m => m.replace(/<[^>]+>/g, '').trim()).filter(t => t.length > 20).join('\n\n') : "본문을 가져올 수 없습니다.";
+	// 본문 영역 후보군 (ID나 Class)
+	const bodySelectors = [
+		'div#articleBody', 'div#newsContext', 'div#news_body_id', 
+		'div.article_view', 'div.article_body', 'div.view_con', 'div#artBody'
+	];
 	
-	// 본문이 너무 길면 자름
-	if (content.length > 5000) content = content.substring(0, 5000) + "...";
-	
+	for (const selector of bodySelectors) {
+		const idMatch = selector.startsWith('div#') ? selector.replace('div#', '') : null;
+		const classMatch = selector.startsWith('div.') ? selector.replace('div.', '') : null;
+		
+		let regex;
+		if (idMatch) regex = new RegExp(`<div[^>]*id=["']${idMatch}["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
+		else if (classMatch) regex = new RegExp(`<div[^>]*class=["'][^"']*${classMatch}[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
+		
+		const match = html.match(regex);
+		if (match) {
+			content = match[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+							 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+							 .replace(/<[^>]+>/g, ' ')
+							 .replace(/\s+/g, ' ')
+							 .trim();
+			if (content.length > 100) break; // 충분한 내용을 찾았으면 중단
+		}
+	}
+
+	// 만약 특정 선택자로 못 찾았다면 모든 p 태그 결합
+	if (!content || content.length < 100) {
+		const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+		if (pMatches) {
+			content = pMatches.map(m => m.replace(/<[^>]+>/g, '').trim())
+							 .filter(t => t.length > 20)
+							 .join('\n\n');
+		}
+	}
+
+	if (!content || content.length < 20) {
+		content = "본문 내용을 자동으로 추출하지 못했습니다. (사이트 보안 또는 구조 문제)";
+	}
+
 	return {
-		title: title.trim(),
-		content: content.trim(),
+		title: title || "제목을 찾을 수 없음",
+		content: content,
 		publisher: new URL(url).hostname,
 	};
 }
@@ -131,7 +184,8 @@ async function fetchArticle(url) {
 async function generateWithGemini(title, content, apiKey) {
 	const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
 	
-	const prompt = `뉴스 기사 제목: ${title}\n뉴스 본문: ${content}\n\n위 뉴스를 인스타그램 카드뉴스 형태로 요약해줘. 형식: { "title": "강렬한 제목", "summary": "3줄 요약" } (JSON으로 응답)`;
+	// 본문이 너무 없으면 제목만으로 시도
+	const prompt = `뉴스 기사 제목: ${title}\n뉴스 본문: ${content.substring(0, 3000)}\n\n위 뉴스를 인스타그램 카드뉴스 형태로 요약해줘. 형식: { "title": "강렬한 제목", "summary": "3줄 요약" } (JSON으로 응답)`;
 	
 	const res = await fetch(endpoint, {
 		method: 'POST',
@@ -140,9 +194,16 @@ async function generateWithGemini(title, content, apiKey) {
 	});
 	
 	const data = await res.json();
-	if (!data.candidates || data.candidates.length === 0) return { title: "요약 실패", summary: "AI 분석에 실패했습니다." };
+	if (!data.candidates || data.candidates.length === 0) {
+		console.error("Gemini Error:", JSON.stringify(data));
+		return { title: "요약 실패", summary: "AI가 내용을 분석할 수 없습니다." };
+	}
 	const text = data.candidates[0].content.parts[0].text;
-	return JSON.parse(text.replace(/```json|```/g, ""));
+	try {
+		return JSON.parse(text.replace(/```json|```/g, ""));
+	} catch (e) {
+		return { title: title, summary: text.substring(0, 200) };
+	}
 }
 
 function jsonBody(prompt) {
