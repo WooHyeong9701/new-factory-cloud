@@ -119,8 +119,6 @@ async function fetchArticle(url) {
 			'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
 			'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
 			'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-			'Cache-Control': 'no-cache',
-			'Pragma': 'no-cache'
 		},
 		redirect: 'follow'
 	});
@@ -129,14 +127,27 @@ async function fetchArticle(url) {
 		throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
 	}
 
-	const html = await res.text();
+	// 인코딩 처리 (EUC-KR 대응)
+	const contentType = res.headers.get('content-type') || '';
+	const buffer = await res.arrayBuffer();
+	let html = '';
 	
+	if (contentType.includes('euc-kr') || contentType.includes('cp949')) {
+		html = new TextDecoder('euc-kr').decode(buffer);
+	} else {
+		// 기본적으로 UTF-8로 시도하되, 메타 태그 재확인
+		html = new TextDecoder('utf-8').decode(buffer);
+		if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"')) {
+			html = new TextDecoder('euc-kr').decode(buffer);
+		}
+	}
+
 	// 1. 제목 추출 (title 태그 또는 h1)
 	let title = "";
 	const titleMatch = html.match(/<title>(.*?)<\/title>/i);
 	if (titleMatch) title = titleMatch[1].split(/[|:-]/)[0].trim();
-	if (!title) {
-		const h1Match = html.match(/<h1[^>]*>(.*?)<\/h1>/i);
+	if (!title || title.length < 2) {
+		const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
 		if (h1Match) title = h1Match[1].replace(/<[^>]+>/g, '').trim();
 	}
 
@@ -146,7 +157,7 @@ async function fetchArticle(url) {
 	// 본문 영역 후보군 (ID나 Class)
 	const bodySelectors = [
 		'div#articleBody', 'div#newsContext', 'div#news_body_id', 
-		'div.article_view', 'div.article_body', 'div.view_con', 'div#artBody'
+		'div.article_view', 'div.article_body', 'div.view_con', 'div#artBody', 'div#article_content'
 	];
 	
 	for (const selector of bodySelectors) {
@@ -159,27 +170,28 @@ async function fetchArticle(url) {
 		
 		const match = html.match(regex);
 		if (match) {
-			content = match[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+			let tempContent = match[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
 							 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+							 .replace(/<div[^>]*>[\s\S]*?<\/div>/gi, ' ') // 내부 div 제거 (광고 등)
 							 .replace(/<[^>]+>/g, ' ')
 							 .replace(/\s+/g, ' ')
 							 .trim();
-			if (content.length > 100) break; // 충분한 내용을 찾았으면 중단
+			if (tempContent.length > content.length) content = tempContent;
 		}
 	}
 
 	// 만약 특정 선택자로 못 찾았다면 모든 p 태그 결합
-	if (!content || content.length < 100) {
+	if (!content || content.length < 150) {
 		const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
 		if (pMatches) {
 			content = pMatches.map(m => m.replace(/<[^>]+>/g, '').trim())
-							 .filter(t => t.length > 20)
+							 .filter(t => t.length > 15)
 							 .join('\n\n');
 		}
 	}
 
-	if (!content || content.length < 20) {
-		content = "본문 내용을 자동으로 추출하지 못했습니다. (사이트 보안 또는 구조 문제)";
+	if (!content || content.length < 50) {
+		content = "본문 내용을 자동으로 추출하지 못했습니다. (사이트 보안 또는 구조 문제)\n\nHTML 본문 일부:\n" + html.substring(0, 500).replace(/<[^>]+>/g, '');
 	}
 
 	return {
