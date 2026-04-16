@@ -125,27 +125,29 @@ async function fetchArticle(url) {
 
 	if (!res.ok) throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
 
-	// 인코딩 처리
 	const contentType = res.headers.get('content-type') || '';
 	const buffer = await res.arrayBuffer();
 	let decoder = new TextDecoder('utf-8');
 	let html = decoder.decode(buffer);
 	
-	if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr')) {
+	if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr') || html.includes('charset="cp949"')) {
 		decoder = new TextDecoder('euc-kr');
 		html = decoder.decode(buffer);
 	}
 
-	// 1. 제목 추출 (정밀)
+	// 1. 제목 추출
 	let title = "";
 	const titleMatch = html.match(/<title>(.*?)<\/title>/i);
 	if (titleMatch) title = titleMatch[1].split(/[|:-]/)[0].trim();
 
-	// 2. 본문 추출 (HTMLRewriter 대용으로 정밀 정규식 사용 - Worker의 HTMLRewriter는 스트림 전용이므로 복잡할 수 있음)
-	// 본문 컨테이너만 먼저 추출
-	const containerSelectors = ['#articleBody', '#newsContext', '#news_body_id', '.article_view', '.article_body', '.view_con', '#article_content'];
-	let bodyHtml = "";
+	// 2. 본문 컨테이너 찾기 (더 넓은 범위의 선택자 지원)
+	const containerSelectors = [
+		'#article-view-content-div', // 매일신문 등
+		'#articleBody', '#newsContext', '#news_body_id', 
+		'.article_view', '.article_body', '.view_con', '#article_content', '#articletxt'
+	];
 	
+	let bodyHtml = "";
 	for (const sel of containerSelectors) {
 		const isId = sel.startsWith('#');
 		const name = sel.substring(1);
@@ -154,44 +156,44 @@ async function fetchArticle(url) {
 			: new RegExp(`<div[^>]*class=["'][^"']*${name}[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
 		
 		const match = html.match(regex);
+		// 가장 내용이 긴 영역을 본문으로 간주
 		if (match && match[1].length > bodyHtml.length) {
 			bodyHtml = match[1];
 		}
 	}
 
-	if (!bodyHtml) bodyHtml = html; // 컨테이너 못 찾으면 전체에서 시도
+	if (!bodyHtml || bodyHtml.length < 200) bodyHtml = html; // 못 찾으면 전체에서 시도
 
-	// 불필요한 태그 제거 (스크립트, 스타일, 광고창, 관련기사 박스 등)
-	bodyHtml = bodyHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-					 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-					 .replace(/<div[^>]*class=["'][^"']*(related|box|sidebar|sns|thumb|ads)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '')
-					 .replace(/<ul[^>]*>[\s\S]*?<\/ul>/gi, ''); // 리스트 형태는 보통 관련뉴스이므로 제거
+	// 3. 본문 정제 (불완전한 태그 및 광고 제거)
+	let cleanHtml = bodyHtml
+		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+		.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+		.replace(/<div[^>]*class=["'][^"']*(sns|share|comment|related|popular|ads|banner)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '');
 
-	// p 태그들만 모으기
-	const pMatches = bodyHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
-	let content = "";
-	if (pMatches) {
-		content = pMatches.map(m => m.replace(/<[^>]+>/g, '').trim())
-						 .filter(t => t.length > 15 && !t.includes('ⓒ') && !t.includes('기자 =') && !t.includes('기자]'))
-						 .join('\n\n');
-	} else {
-		// p 태그가 없으면 줄바꿈 보존하며 텍스트 추출
-		content = bodyHtml.replace(/<br\s*\/?>/gi, '\n')
-						 .replace(/<\/p>/gi, '\n\n')
-						 .replace(/<[^>]+>/g, ' ')
-						 .replace(/\n\s*\n/g, '\n\n')
-						 .trim();
+	// 4. 텍스트 추출 (개행 유지)
+	let content = cleanHtml
+		.replace(/<p[^>]*>/gi, '\n\n')
+		.replace(/<\/p>/gi, '\n')
+		.replace(/<br\s*\/?>/gi, '\n')
+		.replace(/<div[^>]*>/gi, '\n')
+		.replace(/<\/div>/gi, '\n')
+		.replace(/<[^>]+>/g, ' ') // 나머지 태그 제거
+		.replace(/&nbsp;/g, ' ')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/\n\s*\n/g, '\n\n') // 중복 개행 정리
+		.trim();
+
+	// 너무 짧은 줄들(노이즈)은 살려두되, 너무 비정상적이지 않게만 처리
+	if (content.length < 100) {
+		content = "본문 추출에 어려움이 있습니다. 사이트 구조를 확인해 주세요.";
 	}
 
-	// 마지막 필터링: 너무 짧은 줄(광고/링크 등) 제거 및 3000자 제한
-	content = content.split('\n')
-					.filter(line => line.trim().length > 10 || line.trim() === "")
-					.join('\n')
-					.substring(0, 4000);
-
 	return {
-		title: title || "제목을 찾을 수 없음",
-		content: content || "본문 내용을 추출하지 못했습니다.",
+		title: title || "제목 없음",
+		content: content.substring(0, 5000), 
 		publisher: new URL(url).hostname,
 	};
 }
