@@ -12,45 +12,30 @@
             --gradient: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
         }
         * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-        body { font-family:'Inter', sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+        body { font-family:'Inter', sans-serif; background:var(--bg); color:var(--text); line-height:1.5; overflow-x:hidden; }
         
+        .page { display:none; min-height:100vh; padding:20px; transition: 0.3s; }
+        .page.active { display:block; }
+
         header { 
             position: sticky; top:0; z-index:10; background:rgba(0,0,0,0.8); backdrop-filter:blur(10px);
             padding: calc(env(safe-area-inset-top) + 15px) 20px 15px; border-bottom:1px solid var(--border);
-            display:flex; justify-content:space-between; align-items:center;
+            display:flex; justify-content:space-between; align-items:center; margin:-20px -20px 20px -20px;
         }
         .logo { font-size:1.4rem; font-weight:800; background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-        
-        main { padding: 20px; max-width:600px; margin:0 auto; }
 
-        /* URL 입력창 */
-        .input-hero { 
-            background:var(--card); border:1px solid var(--border); border-radius:20px; padding:20px; margin-bottom:30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-        .input-hero h2 { font-size:1rem; margin-bottom:15px; color:var(--text2); }
+        .nav-buttons { display:flex; gap:10px; padding:10px 0; border-top:1px solid var(--border); margin-top:20px; }
+        .btn-nav { flex:1; padding:12px; border-radius:10px; border:1px solid var(--border); color:#fff; cursor:pointer; font-weight:600; text-align:center; }
+        .btn-next { background:var(--accent); border:none; }
+
+        .input-hero { background:var(--card); border:1px solid var(--border); border-radius:20px; padding:20px; margin-bottom:30px; }
         .url-input-group { display:flex; gap:10px; }
-        input { 
-            flex:1; background:#1e1e1e; border:1px solid #333; border-radius:12px; padding:12px 15px; 
-            color:#fff; font-size:0.9rem; outline:none; transition:0.2s;
-        }
-        input:focus { border-color:var(--accent); }
-        .btn-process { 
-            background:var(--accent); color:#fff; border:none; border-radius:12px; padding:0 20px; 
-            font-weight:700; cursor:pointer; font-size:0.9rem;
-        }
+        input { flex:1; background:#1e1e1e; border:1px solid #333; border-radius:12px; padding:12px 15px; color:#fff; outline:none; }
+        .btn-process { background:var(--accent); color:#fff; border:none; border-radius:12px; padding:0 20px; font-weight:700; }
 
-        /* 뉴스 리스트 */
-        .section-title { font-size:0.8rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:15px; }
-        .draft-card { 
-            background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:12px;
-            display:flex; flex-direction:column; gap:8px; animation: fadeIn 0.5s ease; cursor:pointer;
-        }
-        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
-        .draft-title { font-size:1rem; font-weight:700; }
-        .draft-meta { font-size:0.75rem; color:var(--text2); }
+        .content-box { background:var(--card); border-radius:16px; padding:20px; white-space:pre-wrap; font-size:0.95rem; line-height:1.7; color:#ddd; }
+        .summary-box { background:rgba(0, 149, 246, 0.1); border:1px solid var(--accent); border-radius:16px; padding:20px; }
 
-        /* 로딩 애니메이션 */
         .loading { display:none; text-align:center; padding:20px; color:var(--accent); font-weight:700; }
         .spinner { border:3px solid rgba(255,255,255,0.1); border-top:3px solid var(--accent); border-radius:50%; width:24px; height:24px; animation:spin 1s linear infinite; display:inline-block; vertical-align:middle; margin-right:10px; }
         @keyframes spin { 0% { transform:rotate(0deg); } 100% { transform:rotate(360deg); } }
@@ -58,73 +43,88 @@
 </head>
 <body>
 
-<header>
-    <div class="logo">NEWS FACTORY</div>
-    <div style="font-size:0.8rem; color:var(--accent); font-weight:700;">CLOUD v2.0</div>
-</header>
-
-<main>
-    <!-- URL 입력 섹션 -->
+<!-- PAGE 1: HOME (URL INPUT) -->
+<div id="pageHome" class="page active">
+    <header>
+        <div class="logo">NEWS FACTORY</div>
+        <div style="font-size:0.8rem; color:var(--accent); font-weight:700;">CLOUD v2.1</div>
+    </header>
     <div class="input-hero">
-        <h2>이슈가 될 뉴스를 가져오세요</h2>
+        <h2 style="font-size:1rem; margin-bottom:15px; color:var(--text2);">이슈가 될 뉴스를 가져오세요</h2>
         <div class="url-input-group">
             <input type="text" id="urlInput" placeholder="기사 URL을 붙여넣으세요">
             <button class="btn-process" onclick="processUrl()">처리</button>
         </div>
-        <div id="loader" class="loading"><span class="spinner"></span> AI가 기사를 분석 중입니다...</div>
+        <div id="loader" class="loading"><span class="spinner"></span> AI가 기사 원문을 가져오는 중...</div>
     </div>
+</div>
 
-    <!-- 리스트 섹션 -->
-    <div class="section-title">최근 작업 목록</div>
-    <div id="draftList">
-        <!-- JS에서 렌더링 -->
+<!-- PAGE 2: RAW CONTENT -->
+<div id="pageRaw" class="page">
+    <div class="nav-buttons">
+        <div class="btn-nav" onclick="showPage('pageHome')">이전 (홈으로)</div>
+        <div class="btn-nav btn-next" onclick="showPage('pageSummary')">다음 (요약하기)</div>
     </div>
-</main>
+    <h1 id="rawTitle" style="font-size:1.3rem; margin:20px 0;">제목 로딩 중...</h1>
+    <div id="rawContent" class="content-box">내용 로딩 중...</div>
+</div>
+
+<!-- PAGE 3: SUMMARY -->
+<div id="pageSummary" class="page">
+    <div class="nav-buttons">
+        <div class="btn-nav" onclick="showPage('pageRaw')">이전 (원문보기)</div>
+        <div class="btn-nav" style="opacity:0.5; cursor:default;">다음 (커밍순)</div>
+    </div>
+    <h1 id="sumTitle" style="font-size:1.3rem; margin:20px 0; color:var(--accent);">AI 요약 제목</h1>
+    <div id="sumContent" class="summary-box">AI 요약 내용...</div>
+</div>
 
 <script>
-    const API_BASE = ''; // 같은 도메인이므로 비워둡니다.
+    let currentData = null;
 
-    async function loadDrafts() {
-        const res = await fetch('/api/drafts');
-        const data = await res.json();
-        const list = document.getElementById('draftList');
-        list.innerHTML = data.map(d => `
-            <div class="draft-card" onclick="location.href='/draft.html?id=${d.id}'">
-                <div class="draft-meta">${d.publisher} · ${d.created_at}</div>
-                <div class="draft-title">${d.ai_title || d.raw_title}</div>
-            </div>
-        `).join('') || '<div style="color:#555; text-align:center; padding-top:40px;">등록된 뉴스가 없습니다.</div>';
+    function showPage(pageId) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(pageId).classList.add('active');
+        window.scrollTo(0, 0);
     }
 
     async function processUrl() {
-        const input = document.getElementById('urlInput');
-        const url = input.value.trim();
-        if (!url) return alert('URL을 입력해 주세요.');
+        const urlInput = document.getElementById('urlInput');
+        const newsUrl = urlInput.value.trim();
+        if (!newsUrl) return alert('URL을 입력해 주세요.');
 
-        document.getElementById('loader').style.display = 'block';
-        
+        const loader = document.getElementById('loader');
+        loader.style.display = 'block';
+
         try {
             const res = await fetch('/api/process', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
+                body: JSON.stringify({ url: newsUrl })
             });
-            const result = await res.json();
-            if (result.status === 'ok') {
-                input.value = '';
-                await loadDrafts();
-                alert('뉴스가 등록되었습니다! 목록에서 탭하여 편집하세요.');
+            const data = await res.json();
+            
+            if (data.status === 'ok' || data.id) {
+                currentData = data;
+                
+                // 원문 화면 채우기
+                document.getElementById('rawTitle').innerText = data.raw_title || "제목 없음";
+                document.getElementById('rawContent').innerText = data.raw_content || "본문을 가져오지 못했습니다.";
+                
+                // 요약 화면 채우기
+                document.getElementById('sumTitle').innerText = data.ai_title || "요약 제목";
+                document.getElementById('sumContent').innerText = data.ai_summary || "요약 중 오류 발생";
+
+                showPage('pageRaw');
             } else {
-                alert(result.message);
+                alert('처리 실패: ' + (data.message || '알 수 없는 오류'));
             }
         } catch (e) {
             alert('오류 발생: ' + e.message);
         } finally {
-            document.getElementById('loader').style.display = 'none';
+            loader.style.display = 'none';
         }
     }
-
-    loadDrafts();
 </script>
 </body>
 </html>

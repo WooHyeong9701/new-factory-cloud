@@ -21,7 +21,7 @@
 	"upload_source_maps": true,
 	"d1_databases": [
 		{
-			"binding": "news_factory_db",
+			"binding": "DB",
 			"database_name": "news-factory-db",
 			"database_id": "bb5debee-f777-4bd5-9d80-e079c10fd957",
 			"remote": true

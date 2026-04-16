@@ -110,13 +110,20 @@ async function fetchArticle(url) {
 	});
 	const html = await res.text();
 	
-	// 간단한 정규식 추출 (실제로는 더 복잡한 파싱 필요)
+	// 제목 추출
 	const titleMatch = html.match(/<title>(.*?)<\/title>/);
 	const title = titleMatch ? titleMatch[1].split(' : ')[0] : "제목 없음";
 	
+	// 본문 추출 (매우 간단한 버전: p 태그들 결합)
+	const pMatches = html.match(/<p[^>]*>(.*?)<\/p>/g);
+	let content = pMatches ? pMatches.map(m => m.replace(/<[^>]+>/g, '').trim()).filter(t => t.length > 20).join('\n\n') : "본문을 가져올 수 없습니다.";
+	
+	// 본문이 너무 길면 자름
+	if (content.length > 5000) content = content.substring(0, 5000) + "...";
+	
 	return {
-		title: title,
-		content: "본문 내용은 클라우드 환경에서 보안상 생략되었습니다 (제목 기반 처리 가능)",
+		title: title.trim(),
+		content: content.trim(),
 		publisher: new URL(url).hostname,
 	};
 }
@@ -124,7 +131,7 @@ async function fetchArticle(url) {
 async function generateWithGemini(title, content, apiKey) {
 	const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
 	
-	const prompt = `뉴스 기사 제목: ${title}\n위 뉴스를 인스타그램 카드뉴스 형태로 요약해줘. 형식: { "title": "강렬한 제목", "summary": "3줄 요약" } (JSON으로 응답)`;
+	const prompt = `뉴스 기사 제목: ${title}\n뉴스 본문: ${content}\n\n위 뉴스를 인스타그램 카드뉴스 형태로 요약해줘. 형식: { "title": "강렬한 제목", "summary": "3줄 요약" } (JSON으로 응답)`;
 	
 	const res = await fetch(endpoint, {
 		method: 'POST',
@@ -133,6 +140,7 @@ async function generateWithGemini(title, content, apiKey) {
 	});
 	
 	const data = await res.json();
+	if (!data.candidates || data.candidates.length === 0) return { title: "요약 실패", summary: "AI 분석에 실패했습니다." };
 	const text = data.candidates[0].content.parts[0].text;
 	return JSON.parse(text.replace(/```json|```/g, ""));
 }
