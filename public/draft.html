@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>뉴스 상세 편집</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg:#000; --card:#121212; --border:#262626; --text:#fff; --accent:#0095f6; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Inter', sans-serif; background:var(--bg); color:var(--text); padding:20px; }
+        header { margin-bottom:20px; display:flex; gap:15px; align-items:center; }
+        .back { text-decoration:none; color:var(--accent); font-weight:700; }
+        
+        .section { margin-bottom:30px; }
+        .label { font-size:0.75rem; color:#555; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; font-weight:700; }
+        textarea { width:100%; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:15px; color:#fff; font-size:1rem; outline:none; resize:none; }
+        
+        .summary-box { background:#1a1a1a; padding:15px; border-radius:12px; font-size:0.9rem; color:#aaa; line-height:1.6; }
+        
+        .image-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:10px; }
+        .image-card { aspect-ratio:1; background:#222; border-radius:8px; overflow:hidden; border:2px solid transparent; }
+        .image-card.selected { border-color:var(--accent); }
+        .image-card img { width:100%; height:100%; object-fit:cover; }
+        
+        .btn-main { width:100%; background:var(--accent); color:#fff; border:none; border-radius:12px; padding:16px; font-weight:700; font-size:1rem; margin-top:20px; }
+        .btn-gen { background:none; border:1px solid var(--accent); color:var(--accent); margin-top:10px; padding:12px; width:100%; border-radius:12px; font-weight:700; cursor:pointer; }
+    </style>
+</head>
+<body>
+
+<header>
+    <a href="/" class="back">← HOME</a>
+    <h1 id="pageTitle" style="font-size:1.1rem;">편집 중...</h1>
+</header>
+
+<div class="section">
+    <div class="label">인스타 제목</div>
+    <textarea id="aiTitle" rows="3"></textarea>
+</div>
+
+<div class="section">
+    <div class="label">인스타 본문 요약</div>
+    <div id="aiSummary" class="summary-box">분석된 내용이 여기에 나타납니다.</div>
+</div>
+
+<div class="section">
+    <div class="label">AI 이미지 선택</div>
+    <div id="imageGrid" class="image-grid">
+        <!-- 이미지들 -->
+    </div>
+    <button class="btn-gen" onclick="generateImages()">🎨 AI 이미지 생성하기</button>
+</div>
+
+<button class="btn-main" onclick="publish()">인스타그램에 게시하기 🚀</button>
+
+<script>
+    const params = new URLSearchParams(window.location.search);
+    const draftId = params.get('id');
+    let selectedImageUrl = '';
+
+    async function loadData() {
+        const res = await fetch('/api/drafts'); // 목록에서 하나 찾는 식으로 구현 (서버에 단일조회 추가 가능)
+        const drafts = await res.json();
+        const d = drafts.find(x => x.id == draftId);
+        
+        document.getElementById('aiTitle').value = d.ai_title;
+        document.getElementById('aiSummary').innerText = d.ai_summary;
+        document.getElementById('pageTitle').innerText = 'News #' + d.id;
+
+        if (d.image_paths) {
+            renderImages(JSON.parse(d.image_paths));
+        }
+    }
+
+    function renderImages(urls) {
+        const grid = document.getElementById('imageGrid');
+        grid.innerHTML = urls.map(u => `
+            <div class="image-card" onclick="selectImg(this, '${u}')">
+                <img src="${u}">
+            </div>
+        `).join('');
+    }
+
+    function selectImg(el, url) {
+        document.querySelectorAll('.image-card').forEach(c => c.classList.remove('selected'));
+        el.classList.add('selected');
+        selectedImageUrl = url;
+    }
+
+    async function generateImages() {
+        if (!confirm('AI 이미지를 생성할까요?')) return;
+        const res = await fetch(`/api/images/${draftId}`, { method: 'POST' });
+        const data = await res.json();
+        renderImages(data.images);
+    }
+
+    async function publish() {
+        if (!selectedImageUrl) return alert('이미지를 먼저 선택해 주세요!');
+        
+        const res = await fetch(`/api/publish/${draftId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ selected_image: selectedImageUrl })
+        });
+        if (res.ok) {
+            alert('인스타그램 업로드 성공! 🎉');
+            location.href = '/';
+        }
+    }
+
+    loadData();
+</script>
+</body>
+</html>

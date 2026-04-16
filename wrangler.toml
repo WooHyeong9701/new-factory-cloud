@@ -1,0 +1,15 @@
+name = "news-factory-api"
+main = "src/index.js"
+compatibility_date = "2024-04-01"
+
+[vars]
+# 여기에 환경 변수를 넣습니다 (API 키 등)
+# 실제 보안이 필요한 키는 `wrangler secret put` 명령어로 따로 등록합니다.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "news-factory-db"
+database_id = "bb5debee-f777-4bd5-9d80-e079c10fd957"
+
+[site]
+bucket = "./public"

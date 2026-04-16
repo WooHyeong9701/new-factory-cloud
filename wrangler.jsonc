@@ -5,7 +5,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "news-factory-cloud",
-	"main": "src/index.ts",
+	"main": "src/index.js",
 	"compatibility_date": "2026-04-16",
 	"compatibility_flags": [
 		"nodejs_compat",
@@ -18,7 +18,15 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "news_factory_db",
+			"database_name": "news-factory-db",
+			"database_id": "bb5debee-f777-4bd5-9d80-e079c10fd957",
+			"remote": true
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
