@@ -33,17 +33,31 @@
         input { flex:1; background:#1e1e1e; border:1px solid #333; border-radius:12px; padding:12px 15px; color:#fff; outline:none; }
         .btn-process { background:var(--accent); color:#fff; border:none; border-radius:12px; padding:0 20px; font-weight:700; cursor:pointer; }
 
-        /* 작업 목록 스타일 */
         .section-title { font-size:0.8rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin:30px 0 15px; }
-        .draft-card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; animation: fadeIn 0.4s ease; }
-        @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        .draft-card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
         .draft-info { flex:1; cursor:pointer; }
         .draft-title { font-size:0.95rem; font-weight:700; margin-bottom:4px; color:#eee; }
         .draft-meta { font-size:0.75rem; color:var(--text2); }
         .btn-delete { color:var(--danger); font-size:0.8rem; padding:8px; cursor:pointer; font-weight:600; }
 
-        .content-box { background:var(--card); border-radius:16px; padding:20px; white-space:pre-wrap; font-size:0.95rem; line-height:1.7; color:#ddd; min-height:300px; }
-        .summary-box { background:rgba(0, 149, 246, 0.1); border:1px solid var(--accent); border-radius:16px; padding:20px; font-size:1.1rem; }
+        /* 원문 컨테이너 및 복사 버튼 */
+        .content-wrapper { position: relative; width:100%; }
+        .content-box { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; white-space:pre-wrap; font-size:0.95rem; line-height:1.7; color:#ddd; min-height:400px; }
+        .copy-btn { 
+            position: absolute; top:12px; right:12px; background:rgba(255,255,255,0.1); border:1px solid var(--border); 
+            width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+            cursor:pointer; color:var(--text2); z-index:5; backdrop-filter:blur(5px);
+        }
+        .copy-btn:active { background:var(--accent); color:#fff; }
+        
+        /* 알림 메시지 (Toast) */
+        #toast { 
+            position:fixed; bottom:50px; left:50%; transform:translateX(-50%); background:var(--accent); 
+            color:#fff; padding:10px 20px; border-radius:20px; font-weight:700; font-size:0.9rem;
+            display:none; z-index:100; box-shadow:0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .summary-box { background:rgba(0, 149, 246, 0.1); border:1px solid var(--accent); border-radius:16px; padding:25px; font-size:1.1rem; line-height:1.6; }
 
         .loading { display:none; text-align:center; padding:20px; color:var(--accent); font-weight:700; }
         .spinner { border:3px solid rgba(255,255,255,0.1); border-top:3px solid var(--accent); border-radius:50%; width:24px; height:24px; animation:spin 1s linear infinite; display:inline-block; vertical-align:middle; margin-right:10px; }
@@ -52,11 +66,13 @@
 </head>
 <body>
 
-<!-- PAGE 1: HOME (URL INPUT + LIST) -->
+<div id="toast">복사 완료!</div>
+
+<!-- PAGE 1: HOME -->
 <div id="pageHome" class="page active">
     <header>
         <div class="logo">NEWS FACTORY</div>
-        <div style="font-size:0.8rem; color:var(--accent); font-weight:700;">CLOUD v2.2</div>
+        <div style="font-size:0.8rem; color:var(--accent); font-weight:700;">CLOUD v2.3</div>
     </header>
     
     <div class="input-hero">
@@ -69,9 +85,7 @@
     </div>
 
     <div class="section-title">최근 작업 목록</div>
-    <div id="draftList">
-        <!-- JS 렌더링 -->
-    </div>
+    <div id="draftList"></div>
 </div>
 
 <!-- PAGE 2: RAW CONTENT -->
@@ -80,32 +94,37 @@
         <div class="btn-nav" onclick="showPage('pageHome')">← 홈으로</div>
         <div class="btn-nav btn-next" onclick="showPage('pageSummary')">요약하기 →</div>
     </div>
-    <h1 id="rawTitle" style="font-size:1.2rem; margin:20px 0; font-weight:800;">제목 로딩 중...</h1>
-    <div id="rawContent" class="content-box">내용 로딩 중...</div>
+    <h1 id="rawTitle" style="font-size:1.2rem; margin:20px 0; font-weight:800; padding-right:50px;">제목 로딩 중...</h1>
+    
+    <div class="content-wrapper">
+        <div class="copy-btn" onclick="copyContent()" title="원문 복사">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+        </div>
+        <div id="rawContent" class="content-box">내용 로딩 중...</div>
+    </div>
 </div>
 
 <!-- PAGE 3: SUMMARY -->
 <div id="pageSummary" class="page">
     <div class="nav-buttons">
         <div class="btn-nav" onclick="showPage('pageRaw')">← 원문보기</div>
-        <div class="btn-nav active" style="background:var(--accent); color:#fff;" onclick="location.reload()">처음으로</div>
+        <div class="btn-nav" style="background:var(--accent); color:#fff;" onclick="location.reload()">처음으로</div>
     </div>
     <h1 id="sumTitle" style="font-size:1.3rem; margin:25px 0; color:var(--accent); font-weight:800; text-align:center;">AI 요약 제목</h1>
     <div id="sumContent" class="summary-box">AI 요약 내용...</div>
-    <p style="text-align:center; color:var(--text2); font-size:0.8rem; margin-top:30px;">※ 인스타그램에 게시하기 전 내용을 확인하세요.</p>
 </div>
 
 <script>
+    let currentRawText = "";
+
     async function loadDrafts() {
         const res = await fetch('/api/drafts');
         const data = await res.json();
         const list = document.getElementById('draftList');
-        
         if (data.length === 0) {
             list.innerHTML = '<div style="color:#555; text-align:center; padding:40px 0;">아직 등록된 뉴스가 없습니다.</div>';
             return;
         }
-
         list.innerHTML = data.map(d => `
             <div class="draft-card">
                 <div class="draft-info" onclick="viewDraft(${JSON.stringify(d).replace(/"/g, '&quot;')})">
@@ -120,17 +139,25 @@
     function viewDraft(data) {
         document.getElementById('rawTitle').innerText = data.raw_title;
         document.getElementById('rawContent').innerText = data.raw_content;
+        currentRawText = data.raw_content;
         document.getElementById('sumTitle').innerText = data.ai_title;
         document.getElementById('sumContent').innerText = data.ai_summary;
         showPage('pageRaw');
     }
 
+    function copyContent() {
+        if (!currentRawText) return;
+        navigator.clipboard.writeText(currentRawText).then(() => {
+            const toast = document.getElementById('toast');
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2000);
+        });
+    }
+
     async function deleteDraft(id) {
         if (!confirm('정말 삭제하시겠습니까?')) return;
-        const res = await fetch(`/api/drafts/${id}`, { method: 'DELETE' });
-        if (res.ok) {
-            loadDrafts();
-        }
+        await fetch(`/api/drafts/${id}`, { method: 'DELETE' });
+        loadDrafts();
     }
 
     function showPage(pageId) {
@@ -143,9 +170,7 @@
         const urlInput = document.getElementById('urlInput');
         const newsUrl = urlInput.value.trim();
         if (!newsUrl) return alert('URL을 입력해 주세요.');
-
         document.getElementById('loader').style.display = 'block';
-
         try {
             const res = await fetch('/api/process', {
                 method: 'POST',
@@ -153,11 +178,10 @@
                 body: JSON.stringify({ url: newsUrl })
             });
             const data = await res.json();
-            
             if (data.status === 'ok') {
                 urlInput.value = '';
-                viewDraft(data); // 바로 보기 모드로 진입
-                loadDrafts(); // 목록 갱신
+                viewDraft(data);
+                loadDrafts();
             } else {
                 alert(data.message);
             }
