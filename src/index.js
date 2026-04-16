@@ -123,80 +123,75 @@ async function fetchArticle(url) {
 		redirect: 'follow'
 	});
 
-	if (!res.ok) {
-		throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
-	}
+	if (!res.ok) throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
 
-	// 인코딩 처리 (EUC-KR 대응)
+	// 인코딩 처리
 	const contentType = res.headers.get('content-type') || '';
 	const buffer = await res.arrayBuffer();
-	let html = '';
+	let decoder = new TextDecoder('utf-8');
+	let html = decoder.decode(buffer);
 	
-	if (contentType.includes('euc-kr') || contentType.includes('cp949')) {
-		html = new TextDecoder('euc-kr').decode(buffer);
-	} else {
-		// 기본적으로 UTF-8로 시도하되, 메타 태그 재확인
-		html = new TextDecoder('utf-8').decode(buffer);
-		if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"')) {
-			html = new TextDecoder('euc-kr').decode(buffer);
-		}
+	if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr')) {
+		decoder = new TextDecoder('euc-kr');
+		html = decoder.decode(buffer);
 	}
 
-	// 1. 제목 추출 (title 태그 또는 h1)
+	// 1. 제목 추출 (정밀)
 	let title = "";
 	const titleMatch = html.match(/<title>(.*?)<\/title>/i);
 	if (titleMatch) title = titleMatch[1].split(/[|:-]/)[0].trim();
-	if (!title || title.length < 2) {
-		const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-		if (h1Match) title = h1Match[1].replace(/<[^>]+>/g, '').trim();
-	}
 
-	// 2. 본문 추출 (주요 뉴스 사이트 클래스/ID 기반)
-	let content = "";
+	// 2. 본문 추출 (HTMLRewriter 대용으로 정밀 정규식 사용 - Worker의 HTMLRewriter는 스트림 전용이므로 복잡할 수 있음)
+	// 본문 컨테이너만 먼저 추출
+	const containerSelectors = ['#articleBody', '#newsContext', '#news_body_id', '.article_view', '.article_body', '.view_con', '#article_content'];
+	let bodyHtml = "";
 	
-	// 본문 영역 후보군 (ID나 Class)
-	const bodySelectors = [
-		'div#articleBody', 'div#newsContext', 'div#news_body_id', 
-		'div.article_view', 'div.article_body', 'div.view_con', 'div#artBody', 'div#article_content'
-	];
-	
-	for (const selector of bodySelectors) {
-		const idMatch = selector.startsWith('div#') ? selector.replace('div#', '') : null;
-		const classMatch = selector.startsWith('div.') ? selector.replace('div.', '') : null;
-		
-		let regex;
-		if (idMatch) regex = new RegExp(`<div[^>]*id=["']${idMatch}["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
-		else if (classMatch) regex = new RegExp(`<div[^>]*class=["'][^"']*${classMatch}[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
+	for (const sel of containerSelectors) {
+		const isId = sel.startsWith('#');
+		const name = sel.substring(1);
+		const regex = isId 
+			? new RegExp(`<div[^>]*id=["']${name}["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i')
+			: new RegExp(`<div[^>]*class=["'][^"']*${name}[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>`, 'i');
 		
 		const match = html.match(regex);
-		if (match) {
-			let tempContent = match[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-							 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-							 .replace(/<div[^>]*>[\s\S]*?<\/div>/gi, ' ') // 내부 div 제거 (광고 등)
-							 .replace(/<[^>]+>/g, ' ')
-							 .replace(/\s+/g, ' ')
-							 .trim();
-			if (tempContent.length > content.length) content = tempContent;
+		if (match && match[1].length > bodyHtml.length) {
+			bodyHtml = match[1];
 		}
 	}
 
-	// 만약 특정 선택자로 못 찾았다면 모든 p 태그 결합
-	if (!content || content.length < 150) {
-		const pMatches = html.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
-		if (pMatches) {
-			content = pMatches.map(m => m.replace(/<[^>]+>/g, '').trim())
-							 .filter(t => t.length > 15)
-							 .join('\n\n');
-		}
+	if (!bodyHtml) bodyHtml = html; // 컨테이너 못 찾으면 전체에서 시도
+
+	// 불필요한 태그 제거 (스크립트, 스타일, 광고창, 관련기사 박스 등)
+	bodyHtml = bodyHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+					 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+					 .replace(/<div[^>]*class=["'][^"']*(related|box|sidebar|sns|thumb|ads)[^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '')
+					 .replace(/<ul[^>]*>[\s\S]*?<\/ul>/gi, ''); // 리스트 형태는 보통 관련뉴스이므로 제거
+
+	// p 태그들만 모으기
+	const pMatches = bodyHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+	let content = "";
+	if (pMatches) {
+		content = pMatches.map(m => m.replace(/<[^>]+>/g, '').trim())
+						 .filter(t => t.length > 15 && !t.includes('ⓒ') && !t.includes('기자 =') && !t.includes('기자]'))
+						 .join('\n\n');
+	} else {
+		// p 태그가 없으면 줄바꿈 보존하며 텍스트 추출
+		content = bodyHtml.replace(/<br\s*\/?>/gi, '\n')
+						 .replace(/<\/p>/gi, '\n\n')
+						 .replace(/<[^>]+>/g, ' ')
+						 .replace(/\n\s*\n/g, '\n\n')
+						 .trim();
 	}
 
-	if (!content || content.length < 50) {
-		content = "본문 내용을 자동으로 추출하지 못했습니다. (사이트 보안 또는 구조 문제)\n\nHTML 본문 일부:\n" + html.substring(0, 500).replace(/<[^>]+>/g, '');
-	}
+	// 마지막 필터링: 너무 짧은 줄(광고/링크 등) 제거 및 3000자 제한
+	content = content.split('\n')
+					.filter(line => line.trim().length > 10 || line.trim() === "")
+					.join('\n')
+					.substring(0, 4000);
 
 	return {
 		title: title || "제목을 찾을 수 없음",
-		content: content,
+		content: content || "본문 내용을 추출하지 못했습니다.",
 		publisher: new URL(url).hostname,
 	};
 }
