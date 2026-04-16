@@ -125,67 +125,84 @@ async function fetchArticle(url) {
 
 	if (!res.ok) throw new Error(`사이트 접속 실패 (Status: ${res.status})`);
 
-	// 인코딩 확인 및 원본 텍스트 확보 (제목 및 메타 정보용)
-	const resClone = res.clone();
 	const buffer = await res.arrayBuffer();
 	let contentType = res.headers.get('content-type') || '';
 	let decoder = new TextDecoder('utf-8');
-	let htmlForMeta = decoder.decode(buffer);
+	let html = decoder.decode(buffer);
 	
-	if (htmlForMeta.includes('charset="euc-kr"') || htmlForMeta.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr') || htmlForMeta.includes('charset="cp949"')) {
+	if (html.includes('charset="euc-kr"') || html.includes('charset="ks_c_5601-1987"') || contentType.includes('euc-kr') || html.includes('charset="cp949"')) {
 		decoder = new TextDecoder('euc-kr');
-		htmlForMeta = decoder.decode(buffer);
+		html = decoder.decode(buffer);
 	}
 
-	// 제목 추출
+	// [Step 1] 노이즈 제거 (스크립트, 스타일, 주석 등)
+	html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+			   .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+			   .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
+			   .replace(/<!--[\s\S]*?-->/g, '');
+
+	// [Step 2] 제목 추출
 	let title = "";
-	const titleMatch = htmlForMeta.match(/<title>(.*?)<\/title>/i);
+	const titleMatch = html.match(/<title>(.*?)<\/title>/i);
 	if (titleMatch) title = titleMatch[1].split(/[|:-]/)[0].trim();
 
-	// HTMLRewriter를 이용한 강력한 본문 추출
-	let bodyText = "";
-	const rewriter = new HTMLRewriter()
-		// 주요 본문 컨테이너들 지정
-		.on('#article-view-content-div, #articleBody, #newsContext, #news_body_id, .article_view, .article_body, .view_con, #article_content, #articletxt, article', {
-			text(text) {
-				bodyText += text.text;
-			}
-		});
-
-	// 리라이터를 실행하여 본문 텍스트 수집 (스트리밍 방식이라 매우 빠르고 정확함)
-	await rewriter.transform(resClone).arrayBuffer();
-
-	// 만약 위 방식으로 추출된 내용이 너무 적으면 (컨테이너 매칭 실패) 전체 body에서 추출
-	if (bodyText.length < 300) {
-		bodyText = "";
-		const fallbackRewriter = new HTMLRewriter()
-			.on('body', { text(t) { bodyText += t.text; } });
-		await rewriter.transform(new Response(buffer)).arrayBuffer(); // buffer 재사용
+	// [Step 3] 본문 영역 후보 찾기 (가장 긴 텍스트 포함 영역)
+	const containerSelectors = [
+		'div#article-view-content-div', 'div#articleBody', 'div#newsContext', 
+		'div.article_view', 'div.article_body', 'article'
+	];
+	
+	let bestBodyHtml = "";
+	for (const selector of containerSelectors) {
+		const isId = selector.includes('#');
+		const tagParts = selector.split(/[#.]/);
+		const tag = tagParts[0] || 'div';
+		const name = tagParts[1];
+		
+		const regex = isId 
+			? new RegExp(`<${tag}[^>]*id=["']${name}["'][^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i')
+			: new RegExp(`<${tag}[^>]*class=["'][^"']*${name}[^"']*["'][^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+		
+		const match = html.match(regex);
+		if (match && match[1].length > bestBodyHtml.length) {
+			bestBodyHtml = match[1];
+		}
 	}
 
-	// 텍스트 정제 (불완전한 공백 및 노이즈 제거)
-	let content = bodyText
-		.replace(/\t/g, ' ')
-		.replace(/[\r\n]+/g, '\n\n') // 개행을 명확하게 분리
-		.replace(/\s{2,}/g, ' ')     // 과도한 공백 정리
-		.replace(/([^\n])\n\n([^\n])/g, '$1\n$2') // 너무 벌어진 문단은 살짝 조절
-		.trim();
+	if (!bestBodyHtml || bestBodyHtml.length < 500) bestBodyHtml = html;
 
-	// 기사 본문이라고 보기 힘든 앞뒤 노이즈 제거 (간단하게)
-	if (content.length > 5000) content = content.substring(0, 5000);
-
-	if (content.length < 100) {
-		// 최후의 수단: 정규식 기반 전체 텍스트 추출
-		content = htmlForMeta.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-							 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-							 .replace(/<[^>]+>/g, ' ')
-							 .replace(/\s+/g, ' ')
-							 .trim();
+	// [Step 4] 문단(P) 또는 줄바꿈 단위로 텍스트 추출 (정밀 필터링)
+	let paragraphs = [];
+	
+	// p 태그 먼저 시도
+	const pMatches = bestBodyHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+	if (pMatches && pMatches.length > 3) {
+		paragraphs = pMatches.map(p => p.replace(/<[^>]+>/g, '').trim());
+	} else {
+		// p 태그가 부족하면 br이나 div 단위로 쪼개기
+		paragraphs = bestBodyHtml.split(/<br\s*\/?>|<\/div>|<\/p>/gi)
+						 .map(line => line.replace(/<[^>]+>/g, ' ').trim());
 	}
+
+	// [Step 5] 최종 정제 (노이즈 라인 삭제)
+	const finalContent = paragraphs
+		.map(text => text.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim())
+		.filter(text => {
+			// 너무 짧거나 노이즈 같은 문구 필터링
+			if (text.length < 15) return false;
+			if (text.includes('Kakao.init')) return false;
+			if (text.includes('googletag.')) return false;
+			if (text.includes('URL복사')) return false;
+			if (text.includes('페이스북')) return false;
+			if (text.includes('저작권자')) return false;
+			if (text.includes('기자 =')) return false;
+			return true;
+		})
+		.join('\n\n');
 
 	return {
 		title: title || "제목 없음",
-		content: content,
+		content: finalContent || "본문을 추출하지 못했습니다.",
 		publisher: new URL(url).hostname,
 	};
 }
